@@ -39,5 +39,6 @@ while True:
         print event
         if event.fflags & select.KQ_NOTE_DELETE or event.fflags & select.KQ_NOTE_WRITE:
             print "file was updated!"
-            print 'rsync -av --delete -e ssh {} {}'.format(os.path.join(os.getcwd(), folder), ssh)
-            os.system('rsync -av --delete -e ssh {} {}'.format(os.path.join(os.getcwd(), folder), ssh))
+            command = 'rsync -av --delete -e ssh {} {}'.format(os.path.join(os.getcwd(), folder), ssh)
+            print command
+            os.system(command)
