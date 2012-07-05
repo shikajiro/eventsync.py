@@ -1,7 +1,8 @@
-
+# -*- coding: utf-8 -*-
 import select
 import os
 import sys
+import subprocess
 
 
 def kevent(file):
@@ -11,6 +12,41 @@ def kevent(file):
         fflags=select.KQ_NOTE_DELETE | select.KQ_NOTE_WRITE
     )
     return ke
+
+
+def watching(folder, ssh):
+
+    dirs = os.walk(folder)
+
+    fileList = []
+    fbs = []
+
+    # ディレクトリ全てを見て、ファイルの識別子を一覧にする。
+    for root, dirs, files in dirs:
+        f = os.open(root, os.O_RDONLY)
+        fbs.append(f)
+        fileList.append(kevent(f))
+        for a in files:
+            f = os.open(root + '/' + a, os.O_RDONLY)
+            fbs.append(f)
+            fileList.append(kevent(f))
+
+    kq = select.kqueue()
+    # events = kq.control(fileList, 0, None)
+    is_loop = True
+    while is_loop:
+        r_events = kq.control(fileList, 1, None)
+        for event in r_events:
+            print event
+            if event.fflags & select.KQ_NOTE_DELETE or event.fflags & select.KQ_NOTE_WRITE:
+                print "file was updated!"
+                #ファイルを転送するために全てのファイルを閉じる
+                for fb in fbs:
+                    os.close(fb)
+                command = 'rsync -av --delete -e ssh {} {}'.format(os.path.join(os.getcwd(), folder), ssh)
+                print command
+                subprocess.call(command, shell=True)
+                is_loop = False
 
 argvs = sys.argv
 argc = len(argvs)
@@ -22,23 +58,5 @@ ssh = argvs[2]
 print '{} to {}'.format(folder, ssh)
 print 'file update watching...'
 
-dirs = os.walk(folder)
-l = []
-for root, dirs, files in dirs:
-    f = os.open(root, os.O_RDONLY)
-    l.append(kevent(f))
-    for a in files:
-        f = os.open(root + '/' + a, os.O_RDONLY)
-        l.append(kevent(f))
-
-kq = select.kqueue()
-events = kq.control(l, 0, None)
 while True:
-    r_events = kq.control(l, 1, None)
-    for event in r_events:
-        print event
-        if event.fflags & select.KQ_NOTE_DELETE or event.fflags & select.KQ_NOTE_WRITE:
-            print "file was updated!"
-            command = 'rsync -av --delete -e ssh {} {}'.format(os.path.join(os.getcwd(), folder), ssh)
-            print command
-            os.system(command)
+    watching(folder, ssh)
