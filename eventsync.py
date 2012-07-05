@@ -5,6 +5,7 @@ import sys
 import subprocess
 
 
+#ファイルからイベント検知するフラグを取得する
 def kevent(file):
     ke = select.kevent(file,
         filter=select.KQ_FILTER_VNODE,
@@ -14,35 +15,33 @@ def kevent(file):
     return ke
 
 
+#フォルダーの中を監視して、
+#変更があった場合していされたrsyncコマンドを実行する
 def watching(folder, ssh):
-
-    dirs = os.walk(folder)
-
-    fileList = []
-    fbs = []
+    events = []
+    fdList = []
 
     # ディレクトリ全てを見て、ファイルの識別子を一覧にする。
-    for root, dirs, files in dirs:
-        f = os.open(root, os.O_RDONLY)
-        fbs.append(f)
-        fileList.append(kevent(f))
+    for root, dirs, files in os.walk(folder):
+        #ディレクトリを監視
+        fd = os.open(root, os.O_RDONLY)
+        fdList.append(fd)
+        events.append(kevent(fd))
         for a in files:
-            f = os.open(root + '/' + a, os.O_RDONLY)
-            fbs.append(f)
-            fileList.append(kevent(f))
+            #ファイルを監視
+            fd = os.open(root + '/' + a, os.O_RDONLY)
+            fdList.append(fd)
+            events.append(kevent(fd))
 
-    kq = select.kqueue()
-    # events = kq.control(fileList, 0, None)
     is_loop = True
     while is_loop:
-        r_events = kq.control(fileList, 1, None)
-        for event in r_events:
+        for event in select.kqueue().control(events, 1, None):
             print event
             if event.fflags & select.KQ_NOTE_DELETE or event.fflags & select.KQ_NOTE_WRITE:
                 print "file was updated!"
                 #ファイルを転送するために全てのファイルを閉じる
-                for fb in fbs:
-                    os.close(fb)
+                (os.close(fb) for fb in fdList)
+
                 command = 'rsync -av --delete -e ssh {} {}'.format(os.path.join(os.getcwd(), folder), ssh)
                 print command
                 subprocess.call(command, shell=True)
@@ -58,5 +57,7 @@ ssh = argvs[2]
 print '{} to {}'.format(folder, ssh)
 print 'file update watching...'
 
+#監視をずっと続ける。
+#終了する場合は ctrl + C
 while True:
     watching(folder, ssh)
