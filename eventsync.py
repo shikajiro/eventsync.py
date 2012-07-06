@@ -3,6 +3,7 @@ import select
 import os
 import sys
 import subprocess
+import re
 
 
 #ファイルからイベント検知するフラグを取得する
@@ -15,15 +16,51 @@ def kevent(file):
     return ke
 
 
+#.eventignoreファイルから監視対象外リストを作成する。
+def createIgnoreList():
+    ignoreList = []
+    try:
+        ignore = open('.eventignore')
+        while(True):
+            obj = ignore.readline()
+            if obj:
+                pass
+            else:
+                break
+            ignoreList.append(os.getcwd() + '/' + obj)
+        ignore.close()
+    except:
+        pass
+
+    return ignoreList
+
+
+def checkIgnore(target, ignoreList):
+    for ignore in ignoreList:
+        c = re.compile(ignore + '*')
+        if c.match(target):
+            #監視対象外の場合は次に進む
+            return True
+    return False
+
+
 #フォルダーの中を監視して、
 #変更があった場合していされたrsyncコマンドを実行する
 def watching(folder, ssh):
+    #監視対象から外すリスト
+    ignoreList = createIgnoreList()
+
     events = []
     fdList = []
 
     # ディレクトリ全てを見て、ファイルの識別子を一覧にする。
     for root, dirs, files in os.walk(folder):
         #ディレクトリを監視
+        if checkIgnore(root, ignoreList):
+            continue
+        else:
+            print "check target dir is '{}'".format(root)
+
         fd = os.open(root, os.O_RDONLY)
         fdList.append(fd)
         events.append(kevent(fd))
@@ -42,18 +79,18 @@ def watching(folder, ssh):
                 #ファイルを転送するために全てのファイルを閉じる
                 (os.close(fb) for fb in fdList)
 
-                command = 'rsync -av --delete -e ssh {} {}'.format(os.path.join(os.getcwd(), folder), ssh)
+                command = 'rsync -av --delete -e ssh {} {}'.format(os.getcwd(), ssh)
                 print command
                 subprocess.call(command, shell=True)
                 is_loop = False
 
 argvs = sys.argv
 argc = len(argvs)
-if(argc != 3):
+if(argc != 2):
     print 'Usage: python {} filename.'.format(argvs[0])
     quit()
-folder = argvs[1]
-ssh = argvs[2]
+folder = os.getcwd()
+ssh = argvs[1]
 print '{} to {}'.format(folder, ssh)
 print 'file update watching...'
 
