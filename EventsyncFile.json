@@ -1,0 +1,24 @@
+{
+    "ssh":"root@www.kojika-ya.me:/root/",
+
+    "not_watching":[
+        ".git",
+        ".gitignore",
+        "log",
+        "script",
+        "vendor",
+        "tmp",
+        "EventsyncFile"
+    ],
+
+    "not_sync":[
+        ".git",
+        ".gitignore",
+        "db/*.sqlite3",
+        "log",
+        "script",
+        "vendor",
+        "tmp",
+        "EventsyncFile"
+    ]
+}

@@ -1,9 +1,10 @@
+#!/usr/bin/python
 # -*- coding: utf-8 -*-
 import select
 import os
-import sys
 import subprocess
 import re
+import json
 
 
 #ファイルからイベント検知するフラグを取得する
@@ -16,27 +17,29 @@ def kevent(file):
     return ke
 
 
-#.eventignoreファイルから監視対象外リストを作成する。
-def createIgnoreList():
-    ignoreList = []
-    try:
-        ignore = open('.eventignore')
-        while(True):
-            obj = ignore.readline()
-            if obj:
-                pass
-            else:
-                break
-            ignoreList.append(os.getcwd() + '/' + obj)
-        ignore.close()
-    except:
-        pass
-
-    return ignoreList
+#監視や同期先を記述するEventsyncFile.jsonを取得する。
+def getEventsyncFileJson():
+    manageFile = open('EventsyncFile.json')
+    data = json.load(manageFile)
+    return data
 
 
-def checkIgnore(target, ignoreList):
-    for ignore in ignoreList:
+#EventsyncFileから監視対象外リストを作成する。
+def fixNotWatchingList(manageFile):
+    return [os.getcwd() + '/' + n_w for n_w in manageFile['not_watching']]
+
+
+#EventsyncFileから監視対象外リストを作成する。
+def fixExclude(manageFile):
+    exclude_str = ''
+    for n_s in manageFile['not_sync']:
+        exclude_str += '--exclude="' + n_s + '" '
+    return exclude_str
+
+
+#ターゲットが監視対象外か判断する。
+def checkIgnore(target, notWatchingList):
+    for ignore in notWatchingList:
         c = re.compile(ignore + '*')
         if c.match(target):
             #監視対象外の場合は次に進む
@@ -46,17 +49,16 @@ def checkIgnore(target, ignoreList):
 
 #フォルダーの中を監視して、
 #変更があった場合していされたrsyncコマンドを実行する
-def watching(folder, ssh):
+def watching(folder, ssh, manageFile):
     #監視対象から外すリスト
-    ignoreList = createIgnoreList()
-
+    notWatchingList = fixNotWatchingList(manageFile)
     events = []
     fdList = []
 
     # ディレクトリ全てを見て、ファイルの識別子を一覧にする。
     for root, dirs, files in os.walk(folder):
         #ディレクトリを監視
-        if checkIgnore(root, ignoreList):
+        if checkIgnore(root, notWatchingList):
             continue
         else:
             print "check target dir is '{}'".format(root)
@@ -70,31 +72,35 @@ def watching(folder, ssh):
             fdList.append(fd)
             events.append(kevent(fd))
 
-    is_loop = True
-    while is_loop:
+    #ファイルに変化があるまで監視を続ける。
+    while True:
         for event in select.kqueue().control(events, 1, None):
             print event
             if event.fflags & select.KQ_NOTE_DELETE or event.fflags & select.KQ_NOTE_WRITE:
                 print "file was updated!"
                 #ファイルを転送するために全てのファイルを閉じる
-                (os.close(fb) for fb in fdList)
+                for fb in fdList:
+                    os.close(fb)
 
-                command = 'rsync -av --delete -e ssh {} {}'.format(os.getcwd(), ssh)
+                command = 'rsync -av --delete -e ssh {}/ {}'.format(os.getcwd(), ssh)
+                exclude = fixExclude(manageFile)
+                if exclude:
+                    command += " " + exclude
+                print ' '
+                print 'execute command'
                 print command
+                print 'command fix.'
+                print ' '
                 subprocess.call(command, shell=True)
-                is_loop = False
+                return
 
-argvs = sys.argv
-argc = len(argvs)
-if(argc != 2):
-    print 'Usage: python {} filename.'.format(argvs[0])
-    quit()
 folder = os.getcwd()
-ssh = argvs[1]
+manageFile = getEventsyncFileJson()
+ssh = manageFile['ssh']
 print '{} to {}'.format(folder, ssh)
 print 'file update watching...'
 
 #監視をずっと続ける。
 #終了する場合は ctrl + C
 while True:
-    watching(folder, ssh)
+    watching(folder, ssh, manageFile)
